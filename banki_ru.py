@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 import re
 import csv
 import os
+import pandas
 
 
 PROPERTY_ID = {"Высоколиквидные активы": "?PROPERTY_ID=110",
@@ -49,6 +50,16 @@ PROPERTY_ID = {"Высоколиквидные активы": "?PROPERTY_ID=110"
 
 date1 = "2008-03-01"
 #date2 = "2008-03-01"
+
+
+def merge_files(dir):
+    files = os.listdir(dir)
+    df1 = pandas.read_csv("2008-03-01/"+files[0])
+    df2 = pandas.read_csv("2008-03-01/"+files[1])
+
+    merged = df1.merge(df2, on="Лицензия", how="inner").fillna("")
+    merged.to_csv("merged.csv", index=False)
+
 
 
 def get_banks_data_by_date(date):
@@ -111,4 +122,6 @@ def get_banks_data_by_date(date):
                 page_count += 1
 
 
+
 get_banks_data_by_date(date1)
+merge_files("2008-03-01")
