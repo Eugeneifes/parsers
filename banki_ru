@@ -5,45 +5,7 @@ import urllib2
 from bs4 import BeautifulSoup
 import re
 import csv
-
-
-#Высоколиквидные активы
-#Выданные МБК
-#Вложения в акции
-#Вложения в облигации
-#Вложения в векселя
-#Вложения в капиталы других организаций
-#Кредиты ФЛ 0-180
-#Кредиты ФЛ 181-1
-#Кредиты ФЛ 1-3
-#Кредиты ФЛ 3-…
-#Овердрафты и прочие средства, предоставленные ФЛ
-#Кредиты ФЛ.Просроченная задолженность
-#Кредиты ПиО  0-180
-#Кредиты ПиО 181-1
-#Кредиты ПиО 1-3
-#Кредиты ПиО 3-…
-#Овердрафты и прочие средства, предоставленные ИП
-#Кредиты ПиО.Просроченная задолженность
-#ОС и НА
-#Прочие активы
-#Вклады ФЛ. Счета
-#Вклады ФЛ 0-90
-#Вклады ФЛ 91-180
-#Вклады ФЛ 181-1
-#Вклады ФЛ 1-3
-#Вклады ФЛ 3-..
-#Средства ПиО.Счета
-#Средства ПиО 0-90
-#Средства ПиО 91-180
-#Средства ПиО 181-1
-#Средства ПиО 1-3
-#Средства ПиО 3-..
-#Привлеченные МБК
-#Выпущенные облигации
-#Выпущенные векселя
-#Капитал (134ф.)
-
+import os
 
 
 PROPERTY_ID = {"Высоколиквидные активы": "?PROPERTY_ID=110",
@@ -89,105 +51,64 @@ date1 = "2008-03-01"
 #date2 = "2008-03-01"
 
 
-def write_to_db(banks):
-    with open(".csv", "a") as csvfile:
-        fieldnames = ["Name", "License", "Sum1", "Sum2"]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        new_banks = sorted(banks, key=lambda x: x["License"])
-        for elem in new_banks:
-            writer.writerow(elem)
+def get_banks_data_by_date(date):
+
+    if os.path.exists(date):
+        os.rmdir(date)
+
+    os.mkdir(date)
+
+    #получаем информацию по каждому показателю
+    for key in PROPERTY_ID.keys():
+
+        url = "http://www.banki.ru/banks/ratings/"+PROPERTY_ID[key]+"&date1="+date
+        print url
+        page_count = 1
+        Licenses = []
+        flag = True
+
+        with open(date+"/"+key.decode("utf-8")+".csv", "a") as csvfile:
+
+            fieldnames = ["Наименование", "Лицензия", "Показатель"]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+
+            #Итерируем, пока не пошли те же самые банки (хз как обработать ответ сервера, эта падла возвращает 200ок)
+            while(flag == True):
+                print("Page number: %s" % page_count)
+                url = url+"&PAGEN_1="+str(page_count)
+                page = urllib2.urlopen(url)
+                soup = BeautifulSoup(page)
+                full_table = soup.find("table", class_="standard-table standard-table--row-highlight margin-bottom-small")
+                table = full_table.tbody
+                print("+ %d banks" % len(table.find_all("tr")))
+
+                if len(table.find_all("tr")) == 0:
+                    flag=False
+                    break
+
+                for tr in table.find_all("tr"):
+
+                    bank = {}
+                    td = tr.find_all("td")
+                    License = re.sub("\D+", "", td[1].contents[3].text.encode("utf-8"))
+
+                    #Признак конца итерации - пошли те же лицензии
+                    if License in Licenses:
+                        print("Banks in total: %s" % len(Licenses))
+                        flag = False
+                        print("\n")
+                        break
+                    else:
+                        Licenses.append(License)
 
 
-def get_banks_by_date(date):
-    url = "http://www.banki.ru/banks/ratings/"+"?date1="+date
-    print url
-    page_count = 1
-    Licenses = []
-    banks = []
-    flag = True
+                    bank['Наименование'] = re.sub("^\s+|\s+$", "", td[1].contents[1].a.text.encode("utf-8"))
+                    bank['Лицензия'] = re.sub("\D+", "", td[1].contents[3].text.encode("utf-8"))
+                    bank['Показатель'] = re.sub("\s", "", td[2].text.encode("utf-8"))
+                    writer.writerow(bank)
 
-    #Итерируем, пока не пошли те же самые банки (хз как обработать ответ сервера, эта падла возвращает 200ок)
-    while(flag == True):
-        print("Page number: %s" % page_count)
-        url = url+"&PAGEN_1="+str(page_count)
-        page = urllib2.urlopen(url)
-        soup = BeautifulSoup(page)
-        full_table = soup.find("table", class_="standard-table standard-table--row-highlight margin-bottom-small")
-        table = full_table.tbody
-        print("+ %d banks" % len(table.find_all("tr")))
-        for tr in table.find_all("tr"):
+                page_count += 1
 
 
-            #Признак конца итерации - пошли те же лицензии
-            td = tr.find_all("td")
-            License = re.sub("\D+", "", td[1].contents[3].text.encode("utf-8"))
-            if License in Licenses:
-                print("Banks in total: %s" % len(Licenses))
-                flag = False
-                print("\n")
-                break
-            else:
-                Licenses.append(License)
-
-
-            elem = {}
-            elem['Name'] = re.sub("^\s+|\s+$", "", td[1].contents[1].a.text.encode("utf-8"))
-            elem['License'] = License
-            banks.append(elem)
-
-        page_count += 1
-
-
-get_banks_by_date(date1)
-
-
-"""
-
-#получаем все показатели
-indices = PROPERTY_ID.keys()
-
-for index in indices:
-    print("Ongoing index: %s" % index.decode("utf-8"))
-    url = "http://www.banki.ru/banks/ratings/"+PROPERTY_ID[index]+"&date1="+date1
-    print url
-
-    page_count = 1
-    Licenses = []
-    banks = []
-    flag = True
-
-    #Итерируем, пока не пошли те же самые банки (хз как обработать ответ сервера, эта падла возвращает 200ок)
-    while(flag == True):
-        print("Page number: %s" % page_count)
-        url = url+"&PAGEN_1="+str(page_count)
-        page = urllib2.urlopen(url)
-        soup = BeautifulSoup(page)
-        full_table = soup.find("table", class_="standard-table standard-table--row-highlight margin-bottom-small")
-        table = full_table.tbody
-
-        for tr in table.find_all("tr"):
-
-            #Признак конца итерации - пошли те же лицензии
-            td = tr.find_all("td")
-            License = re.sub("\D+", "", td[1].contents[3].text.encode("utf-8"))
-            if License in Licenses:
-                print("Banks in total: %s" % len(Licenses))
-                flag = False
-                print("\n")
-                break
-            else:
-                Licenses.append(License)
-
-            elem ={}
-            elem['Name'] = re.sub("^\s+|\s+$", "", td[1].contents[1].a.text.encode("utf-8"))
-            elem['License'] = License
-            elem[index] = re.sub("\s", "", td[2].text.encode("utf-8"))
-            banks.append(elem)
-
-
-        page_count+=1
-
-    write_to_db(banks)
-
-"""
+get_banks_data_by_date(date1)
