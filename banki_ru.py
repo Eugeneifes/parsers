@@ -7,6 +7,7 @@ import re
 import csv
 import os
 import pandas
+from multiprocessing import Pool
 
 
 PROPERTY_ID = {"Высоколиквидные активы": "?PROPERTY_ID=110",
@@ -54,18 +55,18 @@ date1 = "2008-03-01"
 
 def merge_files(dir):
     files = os.listdir(dir)
-    df1 = pandas.read_csv("2008-03-01/"+files[0])
-    df2 = pandas.read_csv("2008-03-01/"+files[1])
-
-    merged = df1.merge(df2, on="Лицензия", how="inner").fillna("")
+    df1 = pandas.read_csv("2008-03-01/"+files[0], dtype={"Лицензия": str})
+    df2 = pandas.read_csv("2008-03-01/"+files[1], dtype={"Лицензия": str}, usecols=[1, 3])
+    merged = pandas.merge(df1, df2, on="Лицензия", how="inner")
     merged.to_csv("merged.csv", index=False)
 
-
+    for file in files[2:]:
+         df1 = pandas.read_csv("merged.csv", dtype={"Лицензия": str})
+         df2 = pandas.read_csv("2008-03-01/"+file, dtype={"Лицензия": str}, usecols=[1, 3])
+         merged = pandas.merge(df1, df2, on="Лицензия", how="inner")
+         merged.to_csv("merged.csv", index=False)
 
 def get_banks_data_by_date(date):
-
-    if os.path.exists(date):
-        os.rmdir(date)
 
     os.mkdir(date)
 
@@ -74,13 +75,14 @@ def get_banks_data_by_date(date):
 
         url = "http://www.banki.ru/banks/ratings/"+PROPERTY_ID[key]+"&date1="+date
         print url
+        print("Property: %s" % key.decode("utf-8"))
         page_count = 1
         Licenses = []
         flag = True
 
         with open(date+"/"+key.decode("utf-8")+".csv", "a") as csvfile:
 
-            fieldnames = ["Наименование", "Лицензия", "Показатель"]
+            fieldnames = ["Наименование", "Лицензия", "Регион регистрации", key]
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
@@ -114,14 +116,15 @@ def get_banks_data_by_date(date):
                         Licenses.append(License)
 
 
-                    bank['Наименование'] = re.sub("^\s+|\s+$", "", td[1].contents[1].a.text.encode("utf-8"))
-                    bank['Лицензия'] = re.sub("\D+", "", td[1].contents[3].text.encode("utf-8"))
-                    bank['Показатель'] = re.sub("\s", "", td[2].text.encode("utf-8"))
+                    bank['Наименование'] =  td[1].contents[1].a.text.strip().encode("utf-8")
+                    bank['Лицензия'] =  re.sub("\D+", "", td[1].contents[3].text).encode("utf-8")
+                    bank['Регион регистрации'] = td[1].contents[3].text.split(",")[1].strip().encode("utf-8")
+                    bank[key] = re.sub("\s", "", td[2].text).encode("utf-8")
                     writer.writerow(bank)
 
                 page_count += 1
 
 
+#get_banks_data_by_date(date1)
 
-get_banks_data_by_date(date1)
 merge_files("2008-03-01")
