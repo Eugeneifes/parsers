@@ -7,7 +7,7 @@ import re
 import csv
 import os
 import pandas
-from multiprocessing import Pool
+from multiprocessing import Pool, Process
 
 
 PROPERTY_ID = {"Высоколиквидные активы": "?PROPERTY_ID=110",
@@ -49,82 +49,92 @@ PROPERTY_ID = {"Высоколиквидные активы": "?PROPERTY_ID=110"
                }
 
 
-date1 = "2008-03-01"
-#date2 = "2008-03-01"
+dates = ["2008-03-01",
+         "2009-03-01",
+         "2010-03-01",
+         "2011-03-01",
+         "2012-03-01",
+         "2013-03-01",
+         "2014-03-01",
+         "2015-03-01",
+         "2016-03-01"]
 
 
-def merge_files(dir):
-    files = os.listdir(dir)
-    df1 = pandas.read_csv("2008-03-01/"+files[0], dtype={"Лицензия": str})
-    df2 = pandas.read_csv("2008-03-01/"+files[1], dtype={"Лицензия": str}, usecols=[1, 3])
+def merge_files(date):
+    files = os.listdir(date)
+    df1 = pandas.read_csv(date+"/"+files[0], dtype={"Лицензия": str})
+    df2 = pandas.read_csv(date+"/"+files[1], dtype={"Лицензия": str}, usecols=[1, 3])
     merged = pandas.merge(df1, df2, on="Лицензия", how="inner")
-    merged.to_csv("merged.csv", index=False)
+    merged.to_csv(date+".csv", index=False)
 
     for file in files[2:]:
-         df1 = pandas.read_csv("merged.csv", dtype={"Лицензия": str})
-         df2 = pandas.read_csv("2008-03-01/"+file, dtype={"Лицензия": str}, usecols=[1, 3])
+         df1 = pandas.read_csv(date+".csv", dtype={"Лицензия": str})
+         df2 = pandas.read_csv(date+"/"+file, dtype={"Лицензия": str}, usecols=[1, 3])
          merged = pandas.merge(df1, df2, on="Лицензия", how="inner")
-         merged.to_csv("merged.csv", index=False)
+         merged.to_csv(date+".csv", index=False)
 
-def get_banks_data_by_date(date):
 
-    os.mkdir(date)
 
-    #получаем информацию по каждому показателю
-    for key in PROPERTY_ID.keys():
+def get_banks_data_by_date(date, property):
 
-        url = "http://www.banki.ru/banks/ratings/"+PROPERTY_ID[key]+"&date1="+date
-        print url
-        print("Property: %s" % key.decode("utf-8"))
-        page_count = 1
-        Licenses = []
-        flag = True
 
-        with open(date+"/"+key.decode("utf-8")+".csv", "a") as csvfile:
+    url = "http://www.banki.ru/banks/ratings/"+PROPERTY_ID[property]+"&date1="+date
+    print url
+    print("Property: %s" % property.decode("utf-8"))
+    page_count = 1
+    Licenses = []
+    flag = True
 
-            fieldnames = ["Наименование", "Лицензия", "Регион регистрации", key]
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
+    with open(date+"/"+property.decode("utf-8")+".csv", "a") as csvfile:
 
-            #Итерируем, пока не пошли те же самые банки (хз как обработать ответ сервера, эта падла возвращает 200ок)
-            while(flag == True):
-                print("Page number: %s" % page_count)
-                url = url+"&PAGEN_1="+str(page_count)
-                page = urllib2.urlopen(url)
-                soup = BeautifulSoup(page)
-                full_table = soup.find("table", class_="standard-table standard-table--row-highlight margin-bottom-small")
-                table = full_table.tbody
-                print("+ %d banks" % len(table.find_all("tr")))
+        fieldnames = ["Наименование", "Лицензия", "Регион регистрации", property]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
 
-                if len(table.find_all("tr")) == 0:
-                    flag=False
+        #Итерируем, пока не пошли те же самые банки
+        while(flag == True):
+            print("Page number: %s" % page_count)
+            url = url+"&PAGEN_1="+str(page_count)
+            page = urllib2.urlopen(url)
+            soup = BeautifulSoup(page)
+            full_table = soup.find("table", class_="standard-table standard-table--row-highlight margin-bottom-small")
+            table = full_table.tbody
+            print("+ %d banks" % len(table.find_all("tr")))
+
+            if len(table.find_all("tr")) == 0:
+                flag=False
+                break
+
+            for tr in table.find_all("tr"):
+
+                bank = {}
+                td = tr.find_all("td")
+                License = re.sub("\D+", "", td[1].contents[3].text.encode("utf-8"))
+
+                #Признак конца итерации - пошли те же лицензии
+                if License in Licenses:
+                    print("Banks in total: %s" % len(Licenses))
+                    flag = False
+                    print("\n")
                     break
-
-                for tr in table.find_all("tr"):
-
-                    bank = {}
-                    td = tr.find_all("td")
-                    License = re.sub("\D+", "", td[1].contents[3].text.encode("utf-8"))
-
-                    #Признак конца итерации - пошли те же лицензии
-                    if License in Licenses:
-                        print("Banks in total: %s" % len(Licenses))
-                        flag = False
-                        print("\n")
-                        break
-                    else:
-                        Licenses.append(License)
+                else:
+                    Licenses.append(License)
 
 
-                    bank['Наименование'] =  td[1].contents[1].a.text.strip().encode("utf-8")
-                    bank['Лицензия'] =  re.sub("\D+", "", td[1].contents[3].text).encode("utf-8")
-                    bank['Регион регистрации'] = td[1].contents[3].text.split(",")[1].strip().encode("utf-8")
-                    bank[key] = re.sub("\s", "", td[2].text).encode("utf-8")
-                    writer.writerow(bank)
+                bank['Наименование'] =  td[1].contents[1].a.text.strip().encode("utf-8")
+                bank['Лицензия'] = re.sub("\D+", "", td[1].contents[3].text).encode("utf-8")
+                bank['Регион регистрации'] = td[1].contents[3].text.split(",")[1].strip().encode("utf-8")
+                bank[property] = re.sub("\s", "", td[2].text).encode("utf-8")
+                writer.writerow(bank)
 
-                page_count += 1
+            page_count += 1
 
 
-#get_banks_data_by_date(date1)
 
-merge_files("2008-03-01")
+for date in dates:
+    os.mkdir(date)
+    for property in PROPERTY_ID.keys():
+        get_banks_data_by_date(date, property)
+
+for date in dates:
+    merge_files(date)
